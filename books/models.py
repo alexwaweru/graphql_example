@@ -31,3 +31,4 @@ class Review(BaseModelMixin):
 class Inventory(BaseModelMixin):
     book = models.ForeignKey('Book', on_delete=models.CASCADE)
     remaining = models.IntegerField()
+    price = models.FloatField()

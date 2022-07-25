@@ -1,5 +1,5 @@
 # schema.py
-from ariadne import MutationType, QueryType, make_executable_schema
+from ariadne import MutationType, QueryType, make_executable_schema, convert_kwargs_to_snake_case
 
 from books.models import Book, Review, Inventory
 
@@ -65,21 +65,25 @@ def resolve_create_book(*_, title, author):
     return new_book
 
 @mutation.field("createReview")
+@convert_kwargs_to_snake_case
 def resolve_create_review(*_, book_id, rating, is_helpful):
     new_review = Review.objects.create(
-        book=Books.objects.get(id=book_id),
+        book=Book.objects.get(id=book_id),
         rating=rating, 
         is_helpful=is_helpful
     )
+    Book.objects.get(id=book_id).reviews.add(new_review)
     return new_review
 
 @mutation.field("createItem")
+@convert_kwargs_to_snake_case
 def resolve_create_item(*_, book_id, remaining, price):
     new_item = Inventory.objects.create(
-        book=Books.objects.get(id=book_id), 
+        book=Book.objects.get(id=book_id), 
         remaining=remaining, 
         price=price
     )
+    Book.objects.get(id=book_id).items.add(new_item)
     return new_item
 
 # query resolvers
@@ -92,10 +96,45 @@ def resolve_books(_, info, title=None, author=None):
         filter_args["title__icontains"] = title
     if author:
         filter_args["author__icontains"] = author
+    
+    if not filter_args:
+        books = Book.objects.all()
+    else:
+        books = Book.objects.filter(**filter_args).all()
+    
+    results = []
+    for book in books:
+        results.append({
+            "id": str(book.id),
+            "title": book.title,
+            "author": book.author,
+            "reviews": [{
+                "id": str(review.id),
+                "isHelpful": review.is_helpful,
+                "rating": review.rating,
+                "book": {
+                    "id": str(review.book.id),
+                    "title": review.book.title,
+                    "author": review.book.author,
+                },
+            } for review in book.reviews.all()],
+            "items": [{
+                "id": str(item.id),
+                "book": {
+                    "id": str(item.book.id),
+                    "title": item.book.title,
+                    "author": item.book.author,
+                },
+                "remaining": item.remaining,
+                "price": item.price,
+            } for item in book.items.all()],
+        })
 
-    return Book.objects.filter(**filter_args)
+    return results
+
 
 @query.field("reviews")
+@convert_kwargs_to_snake_case
 def resolve_reviews(_, info, book_id, is_helpful=None, rating=None):
     filter_args = {"book_id": book_id}
     if is_helpful:
@@ -103,10 +142,12 @@ def resolve_reviews(_, info, book_id, is_helpful=None, rating=None):
     if rating:
         filter_args = {**rating ,**filter_args}
 
-    return Review.objects.filter(**filter_args)
+    reviews = Review.objects.filter(**filter_args).all()
+    return results
 
 @query.field("items")
+@convert_kwargs_to_snake_case
 def resolve_items(_, info, book_id):
-    return Inventory.objects.filter(book_id=book_id)
+    return Inventory.objects.filter(book_id=book_id).all()
 
 schema = make_executable_schema(type_defs, mutation, query)
